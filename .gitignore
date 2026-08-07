@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+mlruns/
+mlflow.db
+*.egg-info/
+.pytest_cache/
+ml_pipeline/data/processed/*.csv
+!ml_pipeline/data/processed/.gitkeep
