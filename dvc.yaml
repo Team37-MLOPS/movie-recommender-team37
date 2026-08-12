@@ -1,0 +1,35 @@
+stages:
+  extract:
+    cmd: python -m movie_recommender.data.extract
+    deps:
+      - ml-1m.zip
+      - src/movie_recommender/data/extract.py
+      - configs/settings.yaml
+    outs:
+      - data/raw/ml-1m
+  preprocess:
+    cmd: python -m movie_recommender.data.preprocess_spark
+    deps:
+      - data/raw/ml-1m
+      - src/movie_recommender/data/preprocess_spark.py
+      - configs/settings.yaml
+    params:
+      - random_seed
+      - sample_fraction
+    outs:
+      - data/processed
+  train:
+    cmd: python -m movie_recommender.models.train
+    deps:
+      - data/processed
+      - src/movie_recommender/models/train.py
+      - configs/settings.yaml
+    params:
+      - random_seed
+      - top_k
+      - als
+    outs:
+      - models
+    metrics:
+      - artifacts/metrics.json:
+          cache: false
