@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+# MLflow tracking (SQLite backend + artifact store) - not committed yet,
+# DVC/commit strategy for these will be set up in a later check-in
+mlflow.db
+mlruns/
+
+venv/
+.venv/
