@@ -11,7 +11,7 @@ htmlcov/
 data/raw/
 data/interim/
 data/processed/
-models/
+/models/
 artifacts/*
 !artifacts/metrics.json
 logs/
