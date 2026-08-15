@@ -1,0 +1,44 @@
+name: Full MovieLens Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  full-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Extract
+        run: python -m movie_recommender.data.extract
+
+      - name: Preprocess
+        run: python -m movie_recommender.data.preprocess_spark
+
+      - name: Train
+        run: python -m movie_recommender.models.train
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-recommender-artifacts
+          path: |
+            models/
+            artifacts/metrics.json
