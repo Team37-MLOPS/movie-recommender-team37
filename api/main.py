@@ -58,7 +58,7 @@ def get_repository() -> RecommendationRepository:
     )
 
 
-app = FastAPI(title="Movie Recommender Team37", version="0.1.0")
+app = FastAPI(title="Movie Recommender APIs", version="0.1.0")
 REPOSITORY_DEPENDENCY = Depends(get_repository)
 K_QUERY = Query(default=settings.api.default_k, ge=1, le=settings.api.max_k)
 
