@@ -41,3 +41,19 @@ def test_metrics_endpoint() -> None:
     response = client.get("/metrics")
     assert response.status_code == 200
     assert "movie_recommender_api_requests_total" in response.text
+
+
+def test_prediction_metrics_are_emitted() -> None:
+    app.dependency_overrides.clear()
+    get_repository.cache_clear()
+    app.dependency_overrides[get_repository] = lambda: FakeRepository()
+    client = TestClient(app)
+
+    client.get("/recommendations/1?k=1")
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "movie_recommender_predictions_total" in response.text
+    assert "movie_recommender_recommendations_returned_total" in response.text
+    assert "movie_recommender_prediction_score_bucket" in response.text
+    assert "movie_recommender_prediction_release_year_total" in response.text

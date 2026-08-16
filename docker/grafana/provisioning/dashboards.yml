@@ -6,6 +6,8 @@ providers:
     folder: Movie Recommender
     type: file
     disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
     editable: true
     options:
       path: /var/lib/grafana/dashboards
