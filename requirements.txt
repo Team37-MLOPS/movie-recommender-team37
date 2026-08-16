@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+PyYAML==6.0.2
+pandas==2.2.3
+pyarrow==18.1.0
+numpy==2.2.1
+pyspark==3.5.4
+mlflow==2.19.0
+psycopg2-binary==2.9.10
+prometheus-client==0.21.1
+python-json-logger==3.2.1
+dvc[s3]==3.58.0

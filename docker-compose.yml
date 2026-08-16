@@ -1,0 +1,153 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlops}
+      POSTGRES_DB: ${POSTGRES_DB:-mlops}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops}@postgres:5432/mlflow
+      --default-artifact-root /app/artifacts/mlflow
+    environment:
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - mlflow
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    command: webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops}@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: local-dev-secret
+      PROJECT_DIR: /opt/movie-recommender
+      PYTHONPATH: /opt/movie-recommender/src:/opt/movie-recommender
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "${AIRFLOW_HOST_PORT:-8082}:8080"
+    volumes:
+      - .:/opt/movie-recommender
+      - ./dags:/opt/airflow/dags
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    command: scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops}@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: local-dev-secret
+      PROJECT_DIR: /opt/movie-recommender
+      PYTHONPATH: /opt/movie-recommender/src:/opt/movie-recommender
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - .:/opt/movie-recommender
+      - ./dags:/opt/airflow/dags
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_started
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    command: >
+      bash -c "airflow db migrate &&
+      airflow users create
+      --username admin
+      --password admin
+      --firstname Team
+      --lastname 37
+      --role Admin
+      --email admin@example.com || true"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops}@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: local-dev-secret
+    volumes:
+      - .:/opt/movie-recommender
+      - ./dags:/opt/airflow/dags
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

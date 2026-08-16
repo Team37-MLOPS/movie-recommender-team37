@@ -1,0 +1,7 @@
+random_seed: 42
+sample_fraction: 1.0
+top_k: 10
+als:
+  rank: 20
+  max_iter: 10
+  reg_param: 0.08
