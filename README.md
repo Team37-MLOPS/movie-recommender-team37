@@ -37,22 +37,6 @@ models/                 Generated model artifacts, ignored by Git
 artifacts/              Metrics and MLflow artifacts, ignored by Git
 ```
 
-## Branch Workflow
-
-Use component branches and squash PRs into `main`.
-
-Planned branch sequence:
-
-1. `da25m537/feature/mlpipeline`
-2. `da25m537/model-training`
-3. `da25m537/model-versioning`
-4. `da25m537/api-deployment`
-5. `da25m537/monitoring`
-6. `da25m537/docker-compose-stack`
-7. `da25m537/k8s-api-monitoring`
-8. `da25m537/cicd-docs`
-9. `da25m537/aws-ec2-deployment`
-
 ## Setup
 
 ```bash
