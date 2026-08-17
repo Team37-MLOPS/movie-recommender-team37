@@ -2,6 +2,11 @@ name: Full MovieLens Pipeline
 
 on:
   workflow_dispatch:
+  push:
+    branches: [test, main]
+
+permissions:
+  contents: write
 
 jobs:
   full-pipeline:
@@ -42,3 +47,33 @@ jobs:
           path: |
             models/
             artifacts/metrics.json
+
+      - name: Package release artifacts
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          tag="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-${short_sha}"
+          mkdir -p release
+          tar -czf "release/movie-recommender-artifacts-${tag}.tar.gz" models artifacts/metrics.json
+          cp artifacts/metrics.json "release/metrics-${tag}.json"
+
+      - name: Create GitHub release
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          tag="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-${short_sha}"
+          release_args=(
+            "$tag"
+            release/*
+            --target "$GITHUB_SHA"
+            --title "Movie Recommender ${GITHUB_REF_NAME} ${GITHUB_RUN_NUMBER}"
+            --notes "Automated ${GITHUB_REF_NAME} release for commit ${GITHUB_SHA}."
+          )
+          if [ "$GITHUB_REF_NAME" = "test" ]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "${release_args[@]}"
