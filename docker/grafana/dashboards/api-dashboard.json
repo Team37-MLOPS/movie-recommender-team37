@@ -1,41 +1,231 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
+  "description": "API, prediction, and drift monitoring for the Movie Recommender service.",
   "editable": true,
   "panels": [
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "targets": [{"expr": "sum(rate(movie_recommender_api_requests_total[5m])) by (endpoint, status)", "refId": "A"}],
+      "targets": [
+        {
+          "expr": "sum(rate(movie_recommender_api_requests_total[5m])) by (endpoint, status)",
+          "legendFormat": "{{endpoint}} {{status}}",
+          "refId": "A"
+        }
+      ],
       "title": "API request rate",
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "id": 2,
-      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(movie_recommender_api_request_latency_seconds_bucket[5m])) by (le, endpoint))", "refId": "A"}],
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(movie_recommender_api_request_latency_seconds_bucket[5m])) by (le, endpoint))",
+          "legendFormat": "p95 {{endpoint}}",
+          "refId": "A"
+        }
+      ],
       "title": "p95 request latency",
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "id": 3,
-      "targets": [{"expr": "sum(rate(movie_recommender_predictions_total[5m])) by (fallback)", "refId": "A"}],
-      "title": "Prediction rate by fallback",
+      "targets": [
+        {
+          "expr": "sum(rate(movie_recommender_predictions_total[5m])) by (fallback)",
+          "legendFormat": "fallback={{fallback}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Prediction request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "100 * sum(rate(movie_recommender_predictions_total{fallback=\"true\"}[5m])) / sum(rate(movie_recommender_predictions_total[5m]))",
+          "legendFormat": "fallback ratio",
+          "refId": "A"
+        }
+      ],
+      "title": "Drift signal: fallback ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(rate(movie_recommender_recommendations_returned_total[5m])) by (fallback)",
+          "legendFormat": "fallback={{fallback}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Recommendations returned rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(movie_recommender_prediction_score_bucket[5m])) by (le, fallback))",
+          "legendFormat": "p50 fallback={{fallback}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(movie_recommender_prediction_score_bucket[5m])) by (le, fallback))",
+          "legendFormat": "p95 fallback={{fallback}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Drift signal: recommendation score distribution",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "sum(increase(movie_recommender_prediction_release_year_total[1h])) by (year_bucket, fallback)",
+          "legendFormat": "{{year_bucket}} fallback={{fallback}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Drift signal: recommended movie release-year mix",
+      "type": "barchart"
+    },
+    {
+      "datasource": "prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "sum(rate(movie_recommender_prediction_score_bucket[5m])) by (le, fallback)",
+          "legendFormat": "le={{le}} fallback={{fallback}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Prediction score histogram buckets",
       "type": "timeseries"
     }
   ],
   "refresh": "10s",
   "schemaVersion": 40,
-  "tags": ["movie-recommender"],
-  "templating": {"list": []},
-  "time": {"from": "now-1h", "to": "now"},
-  "title": "Movie Recommender API",
-  "uid": "movie-recommender-api",
-  "version": 1
+  "tags": [
+    "movie-recommender",
+    "prediction-monitoring",
+    "drift"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "title": "Basic API Service Dashboard",
+  "uid": "efvbt8hwrwruoe",
+  "version": 2
 }
