@@ -491,6 +491,19 @@ For strict free-tier usage, use one small EC2 instance running Docker Compose,
 configure AWS Budgets before deployment, and stop or terminate resources when
 not in use.
 
+## Technical Report
+
+The full technical report is available in:
+
+```text
+docs/technical-report.md
+```
+
+It covers the problem statement, dataset description, system architecture, data
+pipeline, model development, deployment strategy, monitoring strategy, CI/CD
+implementation, results and discussion, challenges faced, and future
+improvements.
+
 ## Development Checks
 
 ```bash
