@@ -1,3 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+PyYAML==6.0.2
 mlflow==3.14.0
 ray[tune]==2.56.1
 pandas==2.3.3
@@ -6,3 +11,9 @@ scipy==1.18.0
 scikit-learn==1.9.0
 scikit-surprise==1.1.5
 implicit==0.7.3
+pyspark==4.2.0
+pyarrow==18.1.0
+psycopg2-binary==2.9.10
+prometheus-client==0.21.1
+python-json-logger==3.2.1
+dvc[s3]==3.58.0

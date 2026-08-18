@@ -1,0 +1,79 @@
+name: Full MovieLens Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [test, main]
+
+permissions:
+  contents: write
+
+jobs:
+  full-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Extract
+        run: python -m movie_recommender.data.extract
+
+      - name: Preprocess
+        run: python -m movie_recommender.data.preprocess_spark
+
+      - name: Train
+        run: python -m movie_recommender.models.train
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-recommender-artifacts
+          path: |
+            models/
+            artifacts/metrics.json
+
+      - name: Package release artifacts
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          tag="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-${short_sha}"
+          mkdir -p release
+          tar -czf "release/movie-recommender-artifacts-${tag}.tar.gz" models artifacts/metrics.json
+          cp artifacts/metrics.json "release/metrics-${tag}.json"
+
+      - name: Create GitHub release
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          tag="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-${short_sha}"
+          release_args=(
+            "$tag"
+            release/*
+            --target "$GITHUB_SHA"
+            --title "Movie Recommender ${GITHUB_REF_NAME} ${GITHUB_RUN_NUMBER}"
+            --notes "Automated ${GITHUB_REF_NAME} release for commit ${GITHUB_SHA}."
+          )
+          if [ "$GITHUB_REF_NAME" = "test" ]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "${release_args[@]}"

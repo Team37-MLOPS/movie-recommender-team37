@@ -1,0 +1,36 @@
+project_name: movie-recommender-team37
+random_seed: 42
+
+paths:
+  dataset_zip: ml-1m.zip
+  raw_dir: data/raw/ml-1m
+  interim_dir: data/interim
+  processed_dir: data/processed
+  model_dir: models
+  artifact_dir: artifacts
+  recommendation_path: models/recommendations.parquet
+  popularity_path: models/popular_movies.parquet
+  metrics_path: artifacts/metrics.json
+
+spark:
+  app_name: movie-recommender-team37
+  master: local[*]
+  shuffle_partitions: 8
+
+training:
+  sample_fraction: 1.0
+  implicit_prefs: false
+  rank: 20
+  max_iter: 10
+  reg_param: 0.08
+  top_k: 10
+  train_ratio: 0.8
+  cold_start_strategy: drop
+
+mlflow:
+  tracking_uri: mlruns
+  experiment_name: movie-recommender
+
+api:
+  default_k: 10
+  max_k: 50

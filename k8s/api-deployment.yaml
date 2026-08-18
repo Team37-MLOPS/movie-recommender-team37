@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: movie-recommender-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-recommender-api
+  template:
+    metadata:
+      labels:
+        app: movie-recommender-api
+    spec:
+      containers:
+        - name: api
+          image: movie-recommender-team37:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: movie-recommender-api
+spec:
+  selector:
+    app: movie-recommender-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

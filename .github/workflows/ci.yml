@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-and-sample-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Lint
+        run: ruff check src api dags tests scripts
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Validate Airflow DAG import
+        run: python -m py_compile dags/movie_recommender_pipeline.py
+
+      - name: Run deterministic sample pipeline
+        run: python scripts/run_sample_pipeline.py
+
+      - name: Build API image
+        run: docker build -t movie-recommender-team37:ci .
+
+      - name: Upload metrics
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-metrics
+          path: artifacts/metrics.json
+          if-no-files-found: ignore
