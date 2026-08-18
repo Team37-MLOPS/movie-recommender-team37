@@ -2,6 +2,11 @@
 tuning hyperparameters with Ray Tune and tracking every trial + the final
 best model in MLflow.
 
+All of one invocation's Ray Tune trial runs and its final best-model run
+are nested under a single timestamped parent run, so the MLflow UI run
+list shows one collapsible row per training run instead of dumping every
+trial flat in the list - expand it to drill into individual trials.
+
 Unlike SVD, ALS has no rating-scale output, so tuning and model selection
 are driven by ranking quality (f1_at_10, the harmonic mean of precision
 and recall) instead of RMSE. Each Ray Tune trial trains one ALSModel on
@@ -18,6 +23,7 @@ Run with: python -m src.models.train_als
 import logging
 import pickle
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -52,16 +58,23 @@ def evaluate_ranking(model: ALSModel, users, user_items_map, relevant_items_map,
     return precision_recall_at_k(recs, relevant_items_map, k=k)
 
 
-def train_trial(config, train_df, val_df):
+def train_trial(config, train_df, val_df, parent_run_id):
     """One Ray Tune trial: fit an ALSModel with `config` on the training
     set, evaluate ranking quality on the validation set, log it as its own
-    MLflow run, and report f1_at_10 back to the tuner."""
+    MLflow run nested under `parent_run_id`, and report f1_at_10 back to
+    the tuner.
+
+    Ray runs each trial in its own worker process, so the usual
+    `nested=True` context-manager trick (which relies on an in-process
+    "active run" stack) doesn't reach across processes. Setting the
+    `mlflow.parentRunId` tag explicitly achieves the same nesting in the
+    UI regardless of which process created the run."""
     trial_name = tune.get_context().get_trial_name()
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
-    with mlflow.start_run(run_name=trial_name):
+    with mlflow.start_run(run_name=trial_name, tags={"mlflow.parentRunId": parent_run_id}):
         mlflow.log_params(config)
         mlflow.set_tag("model_family", "als")
         mlflow.set_tag("stage", "tuning_trial")
@@ -107,47 +120,53 @@ def main() -> None:
         len(train_df), len(val_df), len(test_df),
     )
 
-    ray.init(ignore_reinit_error=True)
-    logger.info("Ray cluster resources: %s", ray.cluster_resources())
-
-    search_space = {
-        "factors": tune.choice([20, 60, 100]),
-        "regularization": tune.loguniform(1e-3, 1e-1),
-        "iterations": tune.choice([10, 15, 20]),
-    }
-
-    trainable = tune.with_parameters(train_trial, train_df=train_df, val_df=val_df)
-    tuner = tune.Tuner(
-        trainable,
-        param_space=search_space,
-        tune_config=tune.TuneConfig(metric="f1_at_10", mode="max", num_samples=NUM_TUNE_SAMPLES),
-    )
-    results = tuner.fit()
-
-    best_result = results.get_best_result(metric="f1_at_10", mode="max")
-    best_config = best_result.config
-    logger.info(
-        "Best config (selected on validation f1_at_10): %s (f1_at_10=%.4f)",
-        best_config, best_result.metrics["f1_at_10"],
-    )
-
-    logger.info("Retraining best config on train set for final validation evaluation + registration")
-    with mlflow.start_run(run_name="best_model"):
-        mlflow.log_params(best_config)
+    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    with mlflow.start_run(run_name=f"als_tuning_{run_timestamp}") as parent_run:
+        parent_run_id = parent_run.info.run_id
         mlflow.set_tag("model_family", "als")
-        mlflow.set_tag("stage", "best_model")
+        mlflow.set_tag("stage", "tuning_parent")
 
-        best_model = ALSModel(**best_config, random_state=42).fit(train_df)
+        ray.init(ignore_reinit_error=True)
+        logger.info("Ray cluster resources: %s", ray.cluster_resources())
 
-        user_items_map = build_user_items_map(train_df)
-        relevant_items_map = build_relevant_items_map(val_df)
-        val_users = list(relevant_items_map.keys())
+        search_space = {
+            "factors": tune.choice([20, 60, 100]),
+            "regularization": tune.loguniform(1e-3, 1e-1),
+            "iterations": tune.choice([10, 15, 20]),
+        }
 
-        metrics = evaluate_ranking(best_model, val_users, user_items_map, relevant_items_map, k=TOP_K)
-        mlflow.log_metrics(metrics)
-        logger.info("Best model validation metrics: %s", metrics)
+        trainable = tune.with_parameters(train_trial, train_df=train_df, val_df=val_df, parent_run_id=parent_run_id)
+        tuner = tune.Tuner(
+            trainable,
+            param_space=search_space,
+            tune_config=tune.TuneConfig(metric="f1_at_10", mode="max", num_samples=NUM_TUNE_SAMPLES),
+        )
+        results = tuner.fit()
 
-        log_pyfunc_model(best_model, "model", registered_model_name=REGISTERED_MODEL_NAME)
+        best_result = results.get_best_result(metric="f1_at_10", mode="max")
+        best_config = best_result.config
+        logger.info(
+            "Best config (selected on validation f1_at_10): %s (f1_at_10=%.4f)",
+            best_config, best_result.metrics["f1_at_10"],
+        )
+
+        logger.info("Retraining best config on train set for final validation evaluation + registration")
+        with mlflow.start_run(run_name="best_model", nested=True):
+            mlflow.log_params(best_config)
+            mlflow.set_tag("model_family", "als")
+            mlflow.set_tag("stage", "best_model")
+
+            best_model = ALSModel(**best_config, random_state=42).fit(train_df)
+
+            user_items_map = build_user_items_map(train_df)
+            relevant_items_map = build_relevant_items_map(val_df)
+            val_users = list(relevant_items_map.keys())
+
+            metrics = evaluate_ranking(best_model, val_users, user_items_map, relevant_items_map, k=TOP_K)
+            mlflow.log_metrics(metrics)
+            logger.info("Best model validation metrics: %s", metrics)
+
+            log_pyfunc_model(best_model, "model", registered_model_name=REGISTERED_MODEL_NAME)
 
     logger.info("Done. Run `mlflow ui --backend-store-uri %s` to inspect runs and the registry.", MLFLOW_TRACKING_URI)
     logger.info("Test set (%d rows) was not used - reserved for future streamed-inference evaluation.", len(test_df))
