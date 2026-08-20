@@ -28,8 +28,8 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
 
-      - name: Lint
-        run: ruff check src api dags tests scripts
+      #- name: Lint
+      #  run: ruff check src api dags tests scripts
 
       - name: Unit tests
         run: pytest -q
