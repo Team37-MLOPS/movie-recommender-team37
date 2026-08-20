@@ -1,12 +1,5 @@
-"""ALS-based collaborative filtering model (implicit feedback), using the
-`implicit` library's AlternatingLeastSquares.
-
-Unlike SVD, this treats "user rated this movie" as a positive implicit
-signal rather than fitting the exact 1-5 rating value: the model learns
-latent user/item vectors that reconstruct a user-item confidence matrix,
-not a rating matrix. There is no meaningful rating-scale output (no
-RMSE/MAE) - only ranking quality (Precision@K/Recall@K) is evaluated,
-same rationale as in the Project_ref ALS model.
+"""ALS model (implicit feedback) via the `implicit` library. Evaluated on
+ranking quality (Precision@K/Recall@K), not RMSE/MAE.
 """
 from typing import Dict, List
 

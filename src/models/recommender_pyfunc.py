@@ -1,11 +1,6 @@
-"""MLflow pyfunc wrapper around SVDModel so it's logged in proper MLflow
-Model format (servable via mlflow.pyfunc.load_model, registerable in the
-Model Registry) instead of as a bare pickle.
+"""MLflow pyfunc wrapper around SVDModel/ALSModel for the Model Registry.
 
-Expected model_input: a pandas DataFrame with columns:
-  - user_id (int, required)
-  - k (int, optional, defaults to 10)
-Output: for each input row, a ranked list of recommended movie_ids.
+Input columns: user_id (int, required), k (int, optional, default 10).
 """
 import pickle
 

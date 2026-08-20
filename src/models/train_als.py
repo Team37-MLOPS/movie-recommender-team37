@@ -1,22 +1,4 @@
-"""Train an ALS (implicit-feedback) collaborative-filtering recommender,
-tuning hyperparameters with Ray Tune and tracking every trial + the final
-best model in MLflow.
-
-All of one invocation's Ray Tune trial runs and its final best-model run
-are nested under a single timestamped parent run, so the MLflow UI run
-list shows one collapsible row per training run instead of dumping every
-trial flat in the list - expand it to drill into individual trials.
-
-Unlike SVD, ALS has no rating-scale output, so tuning and model selection
-are driven by ranking quality (f1_at_10, the harmonic mean of precision
-and recall) instead of RMSE. Each Ray Tune trial trains one ALSModel on
-the training set and evaluates Precision@10/Recall@10/F1@10 on the
-validation set, logging params/metrics as an MLflow run. After tuning,
-the best config is retrained on the training set, re-evaluated on
-validation, and registered as a new version of the "movie-recommender-als"
-model in the MLflow Model Registry.
-
-The held-out test set is not used in training. Will be used post deployment.
+"""Running ALS model, hyperparameter tuning via Ray Tune, tracked in MLflow.
 
 Run with: python -m src.models.train_als
 """
@@ -59,16 +41,9 @@ def evaluate_ranking(model: ALSModel, users, user_items_map, relevant_items_map,
 
 
 def train_trial(config, train_df, val_df, parent_run_id):
-    """One Ray Tune trial: fit an ALSModel with `config` on the training
-    set, evaluate ranking quality on the validation set, log it as its own
-    MLflow run nested under `parent_run_id`, and report f1_at_10 back to
-    the tuner.
-
-    Ray runs each trial in its own worker process, so the usual
-    `nested=True` context-manager trick (which relies on an in-process
-    "active run" stack) doesn't reach across processes. Setting the
-    `mlflow.parentRunId` tag explicitly achieves the same nesting in the
-    UI regardless of which process created the run."""
+    """One Ray Tune trial: fit + evaluate an ALSModel, log as an MLflow run
+    nested under `parent_run_id` (tag-based since Ray runs trials in
+    separate processes)."""
     trial_name = tune.get_context().get_trial_name()
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -92,9 +67,7 @@ def train_trial(config, train_df, val_df, parent_run_id):
 
 
 def log_pyfunc_model(model: ALSModel, artifact_path: str, registered_model_name: str = None) -> None:
-    """Pickle the raw model, then log it wrapped as an MLflow pyfunc model
-    so it's servable via mlflow.pyfunc.load_model and registerable in the
-    Model Registry."""
+    """Log model as an MLflow pyfunc so it's servable and registerable."""
     with tempfile.TemporaryDirectory() as tmp:
         pkl_path = Path(tmp) / "model.pkl"
         with open(pkl_path, "wb") as f:

@@ -18,17 +18,7 @@ def mae(y_true: Sequence[float], y_pred: Sequence[float]) -> float:
 def precision_recall_at_k(
     recommendations: Dict[int, List[int]], relevant_items: Dict[int, set], k: int = 10
 ) -> Dict[str, float]:
-    """recommendations: user_id -> ranked top-K movie_ids.
-    relevant_items: user_id -> set of movie_ids the user actually liked in
-    the held-out test set. Only users with at least one relevant item are
-    scored.
-
-    F1@K is the harmonic mean of precision and recall, computed per-user
-    then averaged - this captures models that win on recall by casting a
-    wide net (hurting precision) or win on precision by playing it safe
-    with a couple of obvious hits (hurting recall), which recall or
-    precision alone would miss.
-    """
+    """Precision@K/Recall@K/F1@K, averaged over users with >=1 relevant item."""
     precisions, recalls, f1s = [], [], []
     for user_id, relevant in relevant_items.items():
         if not relevant:
