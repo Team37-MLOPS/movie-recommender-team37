@@ -1,19 +1,5 @@
-"""Compare the best run from each trained model family and promote the
-winner to a single, unified "production" model in the MLflow Model
-Registry.
-
-Selection rule: for each model family (tag `model_family`, e.g. "svd",
-"als"), look at its most recent run tagged `stage=best_model`, and rank
-them by `f1_at_10` - the harmonic mean of precision and recall, which
-every family logs (RMSE isn't comparable across families since
-implicit-feedback models like ALS have no meaningful rating-scale
-output). F1 is used instead of recall alone so that a model can't win
-just by casting a wide net (high recall, poor precision) or by playing
-it safe with a couple of obvious hits (high precision, poor recall). The
-winning run's already-logged pyfunc model is registered as a new version
-of "movie-recommender-prod" and given the "champion" alias, so downstream
-consumers can always load `models:/movie-recommender-prod@champion`
-without caring which family is currently winning.
+"""Compare each model family's best run, promote the winner (by f1_at_10)
+to "movie-recommender-prod" with the "champion" alias.
 
 Run with: python -m src.models.select_best
 """

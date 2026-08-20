@@ -1,10 +1,4 @@
-"""SVD-based collaborative filtering model (scikit-surprise).
-
-Learns latent user/item factor vectors from the observed rating matrix
-and predicts unseen ratings as their dot product plus bias terms. This is
-the starting model for the recommender: simple, has a small hyperparameter
-space, and produces ranked top-K recommendations per user.
-"""
+"""SVD model (scikit-surprise) for rating prediction and top-K recs."""
 from typing import Dict, List
 
 import pandas as pd

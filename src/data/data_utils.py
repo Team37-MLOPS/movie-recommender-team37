@@ -27,16 +27,7 @@ def load_ratings(path: Path = RATINGS_PATH) -> pd.DataFrame:
 def train_val_test_split_by_user(
     df: pd.DataFrame, val_frac: float = 0.15, test_frac: float = 0.15, seed: int = 42
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Per-user temporal three-way split: each user's ratings are sorted by
-    time, then sliced chronologically into train / validation / test
-    (oldest -> train, then val, then most recent -> test). Avoids leaking
-    future interactions into training.
-
-    - train: used to fit models.
-    - val: used for Ray Tune trial evaluation and best-config selection,
-    - test: Reserved for future work - simulating streamed inference requests (e.g. via
-      Kafka) against the deployed model.
-    """
+    """Per-user temporal split, sorted by timestamp: train / val / test."""
     df = df.sort_values(["user_id", "timestamp"])
     train_parts, val_parts, test_parts = [], [], []
     for _, group in df.groupby("user_id", sort=False):
