@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from movie_recommender.config import Settings, load_settings
+
+MIN_VALID_AGE = 1
+MAX_VALID_AGE = 120
+VALID_GENDERS = ("M", "F")
+NO_GENRES_LISTED = "(no genres listed)"
 
 RATINGS_SCHEMA = T.StructType(
     [
@@ -64,12 +71,24 @@ def load_raw_frames(spark: SparkSession, raw_dir: Path) -> tuple[DataFrame, Data
 
 
 def clean_ratings(ratings: DataFrame, sample_fraction: float, seed: int) -> DataFrame:
+    deduped_by_event = ratings.dropDuplicates(["user_id", "movie_id", "timestamp"])
+
+    # A user can re-rate the same movie at a different time; keep only the
+    # most recent rating per (user, movie) so aggregates don't double-count
+    # that pair.
+    latest_per_pair = Window.partitionBy("user_id", "movie_id").orderBy(F.col("timestamp").desc())
+    deduped = (
+        deduped_by_event.withColumn("_rank", F.row_number().over(latest_per_pair))
+        .where(F.col("_rank") == 1)
+        .drop("_rank")
+    )
+
     cleaned = (
-        ratings.dropDuplicates(["user_id", "movie_id", "timestamp"])
-        .where(F.col("user_id").isNotNull())
+        deduped.where(F.col("user_id").isNotNull())
         .where(F.col("movie_id").isNotNull())
         .where(F.col("rating").between(1.0, 5.0))
         .where(F.col("timestamp").isNotNull())
+        .where(F.col("timestamp") > 0)
         .withColumn("rating_datetime", F.from_unixtime("timestamp").cast("timestamp"))
         .withColumn("rating_year", F.year("rating_datetime"))
         .withColumn("rating_month", F.month("rating_datetime"))
@@ -80,24 +99,45 @@ def clean_ratings(ratings: DataFrame, sample_fraction: float, seed: int) -> Data
 
 
 def clean_movies(movies: DataFrame) -> DataFrame:
-    return (
+    cleaned = (
         movies.dropDuplicates(["movie_id"])
         .where(F.col("movie_id").isNotNull())
         .where(F.col("title").isNotNull())
         .withColumn("release_year", F.regexp_extract("title", r"\((\d{4})\)$", 1).cast("int"))
+        .withColumn("release_year_missing", F.col("release_year").isNull())
         .withColumn("clean_title", F.trim(F.regexp_replace("title", r"\s*\(\d{4}\)$", "")))
-        .withColumn("genre_array", F.split(F.col("genres"), r"\|"))
+        .withColumn(
+            "genre_array",
+            F.when(F.col("genres") == NO_GENRES_LISTED, F.array())
+            .otherwise(F.split(F.col("genres"), r"\|")),
+        )
     )
+    return cleaned
 
 
 def clean_users(users: DataFrame) -> DataFrame:
     return (
         users.dropDuplicates(["user_id"])
         .where(F.col("user_id").isNotNull())
-        .withColumn("gender", F.coalesce(F.col("gender"), F.lit("unknown")))
-        .withColumn("age", F.coalesce(F.col("age"), F.lit(0)))
+        .withColumn(
+            "gender",
+            F.when(F.col("gender").isin(*VALID_GENDERS), F.col("gender")).otherwise(F.lit("unknown")),
+        )
+        .withColumn(
+            "age",
+            F.when(
+                F.col("age").isNotNull() & F.col("age").between(MIN_VALID_AGE, MAX_VALID_AGE),
+                F.col("age"),
+            ).otherwise(F.lit(0)),
+        )
         .withColumn("occupation", F.coalesce(F.col("occupation"), F.lit(0)))
-        .withColumn("zip_code", F.coalesce(F.col("zip_code"), F.lit("unknown")))
+        .withColumn(
+            "zip_code",
+            F.when(
+                F.col("zip_code").rlike(r"^\d{5}"),
+                F.substring(F.col("zip_code"), 1, 5),
+            ).otherwise(F.lit("unknown")),
+        )
     )
 
 
@@ -143,16 +183,52 @@ def write_outputs(frames: dict[str, DataFrame], processed_dir: Path) -> None:
         frame.write.mode("overwrite").parquet(str(processed_dir / name))
 
 
+def compute_data_quality_report(raw_counts: dict[str, int], cleaned_counts: dict[str, int]) -> dict:
+    report = {}
+    for name, raw_count in raw_counts.items():
+        cleaned_count = cleaned_counts.get(name, 0)
+        dropped = raw_count - cleaned_count
+        report[name] = {
+            "raw_rows": raw_count,
+            "cleaned_rows": cleaned_count,
+            "dropped_rows": dropped,
+            "dropped_ratio": (dropped / raw_count) if raw_count else 0.0,
+        }
+    return report
+
+
+def write_data_quality_report(report: dict, processed_dir: Path) -> None:
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    report_path = processed_dir / "data_quality_report.json"
+    with report_path.open("w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, sort_keys=True)
+
+
 def preprocess(settings: Settings, sample_fraction: float | None = None) -> None:
     spark = build_spark(settings)
     try:
         ratings_raw, movies_raw, users_raw = load_raw_frames(spark, settings.paths.raw_dir)
+        raw_counts = {
+            "ratings": ratings_raw.count(),
+            "movies": movies_raw.count(),
+            "users": users_raw.count(),
+        }
+
         fraction = settings.training.sample_fraction if sample_fraction is None else sample_fraction
         ratings = clean_ratings(ratings_raw, fraction, settings.random_seed)
         movies = clean_movies(movies_raw)
         users = clean_users(users_raw)
+        cleaned_counts = {
+            "ratings": ratings.count(),
+            "movies": movies.count(),
+            "users": users.count(),
+        }
+
         frames = build_features(ratings, movies, users)
         write_outputs(frames, settings.paths.processed_dir)
+
+        report = compute_data_quality_report(raw_counts, cleaned_counts)
+        write_data_quality_report(report, settings.paths.processed_dir)
     finally:
         spark.stop()
 
