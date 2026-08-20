@@ -7,11 +7,21 @@ system. It covers data extraction, Spark preprocessing, model training,
 experiment tracking, model artifact generation, API serving, Dockerized local
 deployment, monitoring, and CI/CD.
 
+Two model-training paths exist side by side:
+
+- `src/movie_recommender/` - the Airflow/Spark/FastAPI pipeline (popularity +
+  Spark ALS), orchestrated end to end and served via the API.
+- `src/models/` and `src/data/` - a standalone SVD/ALS training workflow
+  (`scikit-surprise` / `implicit`) with Ray Tune hyperparameter search,
+  MLflow experiment tracking, and model registry promotion. See
+  `docs/model-development-faq.md` for how to run it.
+
 The project uses:
 
 - Apache Airflow for workflow orchestration
 - Apache Spark for distributed-style data preprocessing
-- MLflow for experiment tracking
+- Ray Tune for hyperparameter tuning
+- MLflow for experiment tracking and model registry
 - DVC for dataset and model artifact versioning
 - FastAPI for recommendation serving
 - Docker Compose for local services
@@ -23,6 +33,9 @@ The source dataset is expected at:
 ```text
 ml-1m.zip
 ```
+
+The standalone `src/models/` training scripts instead expect the dataset
+already unzipped at `ml-1m/ratings.dat` in the project root.
 
 Generated data, model artifacts, metrics, and MLflow files are ignored by Git and
 should be tracked through DVC or release artifacts when needed.
@@ -75,6 +88,7 @@ k8s/                    Local kind manifests for API and monitoring
 models/                 Generated model artifacts, ignored by Git
 scripts/                Utility scripts for CI and sample runs
 src/movie_recommender/  Data, model, serving, and monitoring Python package
+src/data/, src/models/  Standalone SVD/ALS training + Ray Tune + MLflow workflow
 tests/                  Unit and API tests
 ```
 
@@ -88,6 +102,7 @@ models/popular_movies.parquet
 models/als_model/
 artifacts/metrics.json
 mlruns/
+mlflow.db
 ```
 
 ## Dependencies
@@ -107,9 +122,11 @@ requirements-dev.txt
 Core dependencies include:
 
 - `fastapi`, `uvicorn` for API serving
-- `pyspark` for data preprocessing and ALS training
-- `mlflow` for experiment tracking
-- `pandas`, `pyarrow`, `numpy` for artifact loading and local processing
+- `pyspark` (4.x, numpy 2-compatible) for data preprocessing and Spark ALS training
+- `mlflow` for experiment tracking and model registry
+- `ray[tune]` for hyperparameter tuning
+- `scikit-surprise`, `implicit` for the standalone SVD/ALS models
+- `pandas`, `pyarrow`, `numpy`, `scipy`, `scikit-learn` for data processing and metrics
 - `prometheus-client` for API metrics
 - `dvc[s3]` for data/model versioning
 - `pytest`, `ruff` for testing and linting
@@ -153,6 +170,15 @@ Run a faster deterministic sample pipeline:
 
 ```bash
 python scripts/run_sample_pipeline.py
+```
+
+Run the standalone SVD/ALS training workflow (Ray Tune + MLflow, requires
+`ml-1m/ratings.dat`):
+
+```bash
+python -m src.models.train_svd
+python -m src.models.train_als
+python -m src.models.select_best
 ```
 
 Run the Airflow-orchestrated pipeline:
@@ -344,6 +370,13 @@ http://localhost:5000
 
 The Docker Compose stack runs MLflow with Postgres as the backend store and
 stores artifacts under the project-mounted `artifacts/` directory.
+
+The standalone `src/models/` training scripts track to a local SQLite store
+instead (`mlflow.db` at the project root):
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
 
 ## DVC
 
