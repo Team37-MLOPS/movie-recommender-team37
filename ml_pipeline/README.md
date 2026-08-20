@@ -16,7 +16,7 @@ ml_pipeline/
 ├── airflow_dags/
 │   └── movielens_pipeline_dag.py   # Airflow DAG: check data -> Beam -> validate -> train
 ├── training/
-│   └── train_models.py       # Trains + compares 2 models, logs to MLflow
+│   └── train_models.py       # Trains + compares 4 models, logs to MLflow
 ├── mlruns/                   # MLflow tracking store (gitignored; sqlite + artifacts)
 └── requirements.txt
 ```
@@ -33,7 +33,7 @@ ml_pipeline/
   pointed at a distributed runner later without changing the transform
   logic — a good fit for this batch-ETL, non-streaming workload.
 - **MLflow**: tracks params/metrics/artifacts for every training run so the
-  two candidate models can be compared directly in the MLflow UI.
+  candidate models can be compared directly in the MLflow UI.
 
 ## Data processing (part 3)
 
@@ -52,7 +52,7 @@ ml_pipeline/
 
 ## Model development (part 4)
 
-`training/train_models.py` trains and compares two structurally different
+`training/train_models.py` trains and compares four structurally different
 models for rating prediction (1-5 scale):
 
 1. **SVD collaborative filtering** (`surprise.SVD`) — learns latent
@@ -61,14 +61,34 @@ models for rating prediction (1-5 scale):
    on content + demographic features (genres, age/gender/occupation,
    per-user and per-movie historical rating stats computed on the train
    split only, to avoid leakage).
+3. **XGBoost hybrid (residual correction)** — reuses the trained SVD model
+   from (1) as a base predictor, and trains `xgboost.XGBRegressor` on the
+   same content/demographic features as (2) to predict SVD's *residual*
+   (actual rating − SVD's predicted rating). The final prediction is
+   `svd_pred + residual_pred`. Correcting SVD's errors with content signal
+   this way beats SVD alone, without the tree model just re-deriving (and
+   drowning out) the strong SVD signal.
+4. **Neural Collaborative Filtering** (PyTorch) — user/item embedding
+   tables plus per-user/per-movie bias terms, feeding into an MLP
+   (`128 → 64 → 1`) added to a fixed global-mean offset, trained end-to-end
+   on the interaction matrix with dropout and weight decay for
+   regularization. IDs unseen at train time map to a reserved UNK index.
 
-Both are evaluated with RMSE/MAE on a held-out 20% split and logged to
-MLflow. Latest local run:
+All four are evaluated with RMSE/MAE on a held-out 20% split and logged to
+MLflow. Latest local run (1M rows):
 
 | Model | RMSE | MAE |
 |---|---|---|
 | SVD collaborative filtering | 0.872 | 0.685 |
 | Gradient Boosting (content-based) | 0.916 | 0.725 |
+| **XGBoost hybrid (residual correction)** | **0.871** | **0.683** |
+| Neural Collaborative Filtering (PyTorch) | 0.881 | 0.691 |
+
+The XGBoost hybrid gives the best RMSE/MAE of the four by combining SVD's
+collaborative-filtering signal with content/demographic features. NCF beats
+the content-only Gradient Boosting model but doesn't surpass SVD on this
+dataset — a pure embedding model without content features has less signal
+to work with than the hybrid approach.
 
 ## How to run
 
@@ -87,12 +107,12 @@ python3 ml_pipeline/data_pipeline/beam_preprocess.py \
   --users ml_pipeline/data/raw/ml-1m/users.dat \
   --output ml_pipeline/data/processed/movielens_features
 
-# 2. Train + compare models (logs to MLflow under ml_pipeline/mlruns)
+# 2. Train + compare models (logs to MLflow under mlruns/ at the repo root)
 python3 ml_pipeline/training/train_models.py \
   --data ml_pipeline/data/processed/movielens_features.csv
 
 # 3. View experiment results in the MLflow UI
-mlflow ui --backend-store-uri sqlite:///ml_pipeline/mlruns/mlflow.db
+mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 
 # 4. (Optional) Run the same 4 steps as one Airflow DAG
 export AIRFLOW_HOME=~/airflow
