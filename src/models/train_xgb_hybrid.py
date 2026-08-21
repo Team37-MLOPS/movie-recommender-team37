@@ -14,6 +14,12 @@ are nested under a single timestamped parent run, so the MLflow UI run
 list shows one collapsible row per training run instead of dumping every
 trial flat in the list - expand it to drill into individual trials.
 
+After tuning, the top NUM_RERANK_CANDIDATES trials by validation RMSE are
+retrained and re-evaluated on validation F1@10 (the metric select_best.py
+actually compares model families on), and the one with the best F1@10 -
+not necessarily the lowest RMSE - is registered as a new version of the
+"movie-recommender-xgb-hybrid" model in the MLflow Model Registry.
+
 The held-out test set is not used in training. Will be used post deployment.
 
 Run with: python -m src.models.train_xgb_hybrid
@@ -27,6 +33,7 @@ from pathlib import Path
 import mlflow
 import mlflow.pyfunc
 import ray
+from mlflow.tracking import MlflowClient
 from ray import tune
 
 from movie_recommender.config import load_settings
@@ -51,16 +58,49 @@ EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-xgb-hybrid"
 TOP_K = 10
 NUM_TUNE_SAMPLES = 8
+NUM_RERANK_CANDIDATES = 3
 
-# SVD is fit once per trial with a fixed, reasonable configuration (not
-# tuned itself here - train_svd.py already tunes SVD as its own family);
-# only the XGBoost residual model's hyperparameters are searched.
-SVD_PARAMS = dict(n_factors=50, n_epochs=20, lr_all=0.005, reg_all=0.02)
+# SVD is fit once per trial with a fixed configuration (not tuned itself
+# here - train_svd.py already tunes SVD as its own family); only the
+# XGBoost residual model's hyperparameters are searched. Used only if no
+# svd `best_model` run exists yet to pull a tuned config from (see
+# `_load_svd_params`) - e.g. the very first time this script runs before
+# train_svd.py has ever produced one.
+FALLBACK_SVD_PARAMS = dict(n_factors=50, n_epochs=20, lr_all=0.005, reg_all=0.02)
 
 
-def evaluate_ranking(model: XGBHybridModel, users, user_items_map, relevant_items_map, k=TOP_K) -> dict:
-    recs = model.recommend_batch(users, k, user_items_map)
-    return precision_recall_at_k(recs, relevant_items_map, k=k)
+def _load_svd_params() -> dict:
+    """Pull the hyperparameters of the best-ever tuned SVD model (by
+    validation f1_at_10) from MLflow, so the hybrid's base model always
+    tracks train_svd.py's actual tuned optimum instead of a hardcoded
+    snapshot that can silently drift stale - fitting residuals against a
+    weak base model erases whatever signal the tree model would otherwise
+    learn."""
+    client = MlflowClient()
+    experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
+    if experiment is None:
+        logger.warning("No '%s' experiment yet, using fallback SVD params", EXPERIMENT_NAME)
+        return FALLBACK_SVD_PARAMS
+
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string="tags.stage = 'best_model' and tags.model_family = 'svd'",
+        order_by=["attributes.start_time DESC"],
+        max_results=1000,
+    )
+    best_run = max(runs, key=lambda r: r.data.metrics.get("f1_at_10", -1.0), default=None)
+    if best_run is None or "f1_at_10" not in best_run.data.metrics:
+        logger.warning("No svd best_model run found, using fallback SVD params")
+        return FALLBACK_SVD_PARAMS
+
+    params = {
+        "n_factors": int(best_run.data.params["n_factors"]),
+        "n_epochs": int(best_run.data.params["n_epochs"]),
+        "lr_all": float(best_run.data.params["lr_all"]),
+        "reg_all": float(best_run.data.params["reg_all"]),
+    }
+    logger.info("Using tuned SVD params from run %s: %s", best_run.info.run_id, params)
+    return params
 
 
 def evaluate_rating_predictions(model: XGBHybridModel, eval_df) -> dict:
@@ -69,7 +109,7 @@ def evaluate_rating_predictions(model: XGBHybridModel, eval_df) -> dict:
     return {"rmse": rmse(y_true, y_pred), "mae": mae(y_true, y_pred)}
 
 
-def train_trial(config, train_df, val_df, movies_features, users_features, parent_run_id):
+def train_trial(config, train_df, val_df, movies_features, users_features, svd_params, parent_run_id):
     """One Ray Tune trial: fit an XGBHybridModel with `config` on the
     training set, evaluate rating-prediction accuracy on the validation
     set, log it as its own MLflow run nested under `parent_run_id`, and
@@ -90,7 +130,7 @@ def train_trial(config, train_df, val_df, movies_features, users_features, paren
         mlflow.set_tag("model_family", "xgb_hybrid")
         mlflow.set_tag("stage", "tuning_trial")
 
-        model = XGBHybridModel(svd_params=SVD_PARAMS, **config).fit(train_df, movies_features, users_features)
+        model = XGBHybridModel(svd_params=svd_params, **config).fit(train_df, movies_features, users_features)
         metrics = evaluate_rating_predictions(model, val_df)
         mlflow.log_metrics(metrics)
 
@@ -122,6 +162,7 @@ def main() -> None:
     ratings = load_ratings()
     settings = load_settings()
     movies_features, users_features = load_engineered_features(settings.paths.processed_dir)
+    svd_params = _load_svd_params()
 
     train_df, val_df, test_df = train_val_test_split_by_user(ratings, val_frac=0.15, test_frac=0.15, seed=42)
     logger.info(
@@ -151,6 +192,7 @@ def main() -> None:
             val_df=val_df,
             movies_features=movies_features,
             users_features=users_features,
+            svd_params=svd_params,
             parent_run_id=parent_run_id,
         )
         tuner = tune.Tuner(
@@ -160,27 +202,38 @@ def main() -> None:
         )
         results = tuner.fit()
 
-        best_result = results.get_best_result(metric="rmse", mode="min")
-        best_config = best_result.config
-        logger.info("Best config (selected on validation rmse): %s (rmse=%.4f)", best_config, best_result.metrics["rmse"])
+        # RMSE (rating-value accuracy) and F1@10 (ranking quality) don't
+        # always agree on which config is best, and F1@10 is what this
+        # project actually selects/serves models on (see select_best.py).
+        # Re-rank the top RMSE candidates by validation F1@10 and keep the
+        # one that ranks best, rather than blindly trusting the RMSE
+        # optimum.
+        top_results = sorted(results, key=lambda r: r.metrics["rmse"])[:NUM_RERANK_CANDIDATES]
+        user_items_map = build_user_items_map(train_df)
+        relevant_items_map = build_relevant_items_map(val_df)
+        val_users = list(relevant_items_map.keys())
 
-        logger.info("Retraining best config on train set for final validation evaluation + registration")
+        candidates = []
+        for result in top_results:
+            config = result.config
+            model = XGBHybridModel(svd_params=svd_params, **config).fit(train_df, movies_features, users_features)
+            metrics = evaluate_rating_predictions(model, val_df)
+            recs = model.recommend_batch(val_users, TOP_K, user_items_map)
+            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
+            logger.info("Re-rank candidate config=%s metrics=%s", config, metrics)
+            candidates.append((config, model, metrics))
+
+        best_config, best_model, metrics = max(candidates, key=lambda c: c[2]["f1_at_10"])
+        logger.info(
+            "Selected config (best validation f1_at_10 among top-%d rmse candidates): %s",
+            NUM_RERANK_CANDIDATES, best_config,
+        )
+
+        logger.info("Logging selected model for registration")
         with mlflow.start_run(run_name="best_model", nested=True):
             mlflow.log_params(best_config)
             mlflow.set_tag("model_family", "xgb_hybrid")
             mlflow.set_tag("stage", "best_model")
-
-            best_model = XGBHybridModel(svd_params=SVD_PARAMS, **best_config).fit(
-                train_df, movies_features, users_features
-            )
-
-            user_items_map = build_user_items_map(train_df)
-            relevant_items_map = build_relevant_items_map(val_df)
-            val_users = list(relevant_items_map.keys())
-
-            metrics = evaluate_rating_predictions(best_model, val_df)
-            recs = best_model.recommend_batch(val_users, TOP_K, user_items_map)
-            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
             mlflow.log_metrics(metrics)
             logger.info("Best model validation metrics: %s", metrics)
 

@@ -15,6 +15,14 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+# Ray Tune pins each trial to 1 CPU (via OMP_NUM_THREADS), which is why a
+# tuning trial fits in ~9 min - torch's default of spinning up one thread
+# per core adds thread-launch/sync overhead per op that dwarfs the actual
+# compute on this model's tiny batches (<=4096 rows, <=256-dim). Outside
+# Ray (e.g. re-ranking retrains in train_*.py) that pin doesn't apply, so
+# pin it explicitly here for consistent, fast performance in every context.
+torch.set_num_threads(1)
+
 UNK_INDEX = 0
 
 

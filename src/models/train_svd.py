@@ -1,5 +1,11 @@
 """Running SVD model, hyperparameter tuning via Ray Tune, tracked in MLflow.
 
+After tuning, the top NUM_RERANK_CANDIDATES trials by validation RMSE are
+retrained and re-evaluated on validation F1@10 (the metric select_best.py
+actually compares model families on), and the one with the best F1@10 -
+not necessarily the lowest RMSE - is registered as a new version of the
+"movie-recommender-svd" model in the MLflow Model Registry.
+
 Run with: python -m src.models.train_svd
 """
 import logging
@@ -33,6 +39,7 @@ EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-svd"
 TOP_K = 10
 NUM_TUNE_SAMPLES = 8
+NUM_RERANK_CANDIDATES = 3
 
 
 def evaluate_rating_predictions(model: SVDModel, eval_df) -> dict:
@@ -113,25 +120,38 @@ def main() -> None:
         )
         results = tuner.fit()
 
-        best_result = results.get_best_result(metric="rmse", mode="min")
-        best_config = best_result.config
-        logger.info("Best config (selected on validation rmse): %s (rmse=%.4f)", best_config, best_result.metrics["rmse"])
+        # RMSE (rating-value accuracy) and F1@10 (ranking quality) don't
+        # always agree on which config is best, and F1@10 is what this
+        # project actually selects/serves models on (see select_best.py).
+        # Re-rank the top RMSE candidates by validation F1@10 and keep the
+        # one that ranks best, rather than blindly trusting the RMSE
+        # optimum - cheap here since SVD retrains in seconds.
+        top_results = sorted(results, key=lambda r: r.metrics["rmse"])[:NUM_RERANK_CANDIDATES]
+        user_items_map = build_user_items_map(train_df)
+        relevant_items_map = build_relevant_items_map(val_df)
+        val_users = list(relevant_items_map.keys())
 
-        logger.info("Retraining best config on train set for final validation evaluation + registration")
+        candidates = []
+        for result in top_results:
+            config = result.config
+            model = SVDModel(**config, random_state=42).fit(train_df)
+            metrics = evaluate_rating_predictions(model, val_df)
+            recs = model.recommend_batch(val_users, TOP_K, user_items_map)
+            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
+            logger.info("Re-rank candidate config=%s metrics=%s", config, metrics)
+            candidates.append((config, model, metrics))
+
+        best_config, best_model, metrics = max(candidates, key=lambda c: c[2]["f1_at_10"])
+        logger.info(
+            "Selected config (best validation f1_at_10 among top-%d rmse candidates): %s",
+            NUM_RERANK_CANDIDATES, best_config,
+        )
+
+        logger.info("Logging selected model for registration")
         with mlflow.start_run(run_name="best_model", nested=True):
             mlflow.log_params(best_config)
             mlflow.set_tag("model_family", "svd")
             mlflow.set_tag("stage", "best_model")
-
-            best_model = SVDModel(**best_config, random_state=42).fit(train_df)
-
-            user_items_map = build_user_items_map(train_df)
-            relevant_items_map = build_relevant_items_map(val_df)
-            val_users = list(relevant_items_map.keys())
-
-            metrics = evaluate_rating_predictions(best_model, val_df)
-            recs = best_model.recommend_batch(val_users, TOP_K, user_items_map)
-            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
             mlflow.log_metrics(metrics)
             logger.info("Best model validation metrics: %s", metrics)
 

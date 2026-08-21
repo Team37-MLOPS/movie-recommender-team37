@@ -8,11 +8,12 @@ list shows one collapsible row per training run instead of dumping every
 trial flat in the list - expand it to drill into individual trials.
 
 Each Ray Tune trial trains one NCFModel on the training set and evaluates
-it on the validation set, logging its params/metrics as an MLflow run.
-After tuning, the best config (selected on validation RMSE) is retrained
-on the training set, evaluated on validation with the full metric set
-(rating + ranking), and registered as a new version of the
-"movie-recommender-ncf" model in the MLflow Model Registry.
+it on the validation set (RMSE), logging its params/metrics as an MLflow
+run. After tuning, the top NUM_RERANK_CANDIDATES trials by validation RMSE
+are retrained and re-evaluated on validation F1@10 (the metric
+select_best.py actually compares model families on), and the one with the
+best F1@10 - not necessarily the lowest RMSE - is registered as a new
+version of the "movie-recommender-ncf" model in the MLflow Model Registry.
 
 The held-out test set is not used in training. Will be used post deployment.
 
@@ -49,6 +50,7 @@ EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-ncf"
 TOP_K = 10
 NUM_TUNE_SAMPLES = 8
+NUM_RERANK_CANDIDATES = 3
 FIXED_EPOCHS = 15
 FIXED_BATCH_SIZE = 4096
 
@@ -144,27 +146,37 @@ def main() -> None:
         )
         results = tuner.fit()
 
-        best_result = results.get_best_result(metric="rmse", mode="min")
-        best_config = best_result.config
-        logger.info("Best config (selected on validation rmse): %s (rmse=%.4f)", best_config, best_result.metrics["rmse"])
+        # RMSE and F1@10 don't always agree on the best config, and F1@10
+        # is what select_best.py actually compares model families on.
+        # Re-rank the top RMSE candidates by validation F1@10 and keep the
+        # one that ranks best, rather than blindly trusting the RMSE
+        # optimum.
+        top_results = sorted(results, key=lambda r: r.metrics["rmse"])[:NUM_RERANK_CANDIDATES]
+        user_items_map = build_user_items_map(train_df)
+        relevant_items_map = build_relevant_items_map(val_df)
+        val_users = list(relevant_items_map.keys())
 
-        logger.info("Retraining best config on train set for final validation evaluation + registration")
+        candidates = []
+        for result in top_results:
+            config = result.config
+            model = NCFModel(epochs=FIXED_EPOCHS, batch_size=FIXED_BATCH_SIZE, random_state=42, **config).fit(train_df)
+            metrics = evaluate_rating_predictions(model, val_df)
+            recs = model.recommend_batch(val_users, TOP_K, user_items_map)
+            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
+            logger.info("Re-rank candidate config=%s metrics=%s", config, metrics)
+            candidates.append((config, model, metrics))
+
+        best_config, best_model, metrics = max(candidates, key=lambda c: c[2]["f1_at_10"])
+        logger.info(
+            "Selected config (best validation f1_at_10 among top-%d rmse candidates): %s",
+            NUM_RERANK_CANDIDATES, best_config,
+        )
+
+        logger.info("Logging selected model for registration")
         with mlflow.start_run(run_name="best_model", nested=True):
             mlflow.log_params(best_config)
             mlflow.set_tag("model_family", "ncf")
             mlflow.set_tag("stage", "best_model")
-
-            best_model = NCFModel(epochs=FIXED_EPOCHS, batch_size=FIXED_BATCH_SIZE, random_state=42, **best_config).fit(
-                train_df
-            )
-
-            user_items_map = build_user_items_map(train_df)
-            relevant_items_map = build_relevant_items_map(val_df)
-            val_users = list(relevant_items_map.keys())
-
-            metrics = evaluate_rating_predictions(best_model, val_df)
-            recs = best_model.recommend_batch(val_users, TOP_K, user_items_map)
-            metrics.update(precision_recall_at_k(recs, relevant_items_map, k=TOP_K))
             mlflow.log_metrics(metrics)
             logger.info("Best model validation metrics: %s", metrics)
 
