@@ -38,12 +38,3 @@ Open only the ports needed for a demo, restricted to your IP:
 - `3000`: Grafana
 
 Avoid exposing Postgres and Prometheus publicly.
-
-## Optional S3 DVC Remote
-
-```bash
-dvc remote add -d aws-s3 s3://replace-with-your-bucket/dvc
-dvc push
-```
-
-Use IAM credentials with the minimum permissions needed for the DVC bucket.

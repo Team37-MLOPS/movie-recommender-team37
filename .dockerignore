@@ -12,7 +12,6 @@ models
 artifacts
 logs
 mlruns
-.dvc/cache
 
 *.pyc
 *.log
