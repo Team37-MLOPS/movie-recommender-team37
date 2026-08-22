@@ -1,7 +1,7 @@
 [project]
 name = "movie-recommender-team37"
 version = "0.1.0"
-description = "MLOps movie recommendation pipeline using Airflow, Spark, MLflow, DVC, FastAPI, Docker, and monitoring."
+description = "MLOps movie recommendation pipeline using Airflow, Spark, MLflow, FastAPI, Docker, and monitoring."
 requires-python = ">=3.11"
 
 [build-system]

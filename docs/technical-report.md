@@ -32,7 +32,7 @@ The architecture combines offline training and online serving:
 - Spark performs data cleaning, feature generation, and preprocessing.
 - Model training produces recommendation artifacts.
 - MLflow tracks parameters, metrics, and generated artifacts.
-- DVC is used for dataset and artifact versioning.
+- Git LFS versions the dataset archive and MLflow SQLite history.
 - FastAPI serves recommendation requests.
 - Prometheus collects API and prediction metrics.
 - Grafana visualizes API health, prediction behavior, and lightweight drift
@@ -202,7 +202,6 @@ Planned improvements include:
   manifests as a starting point.
 - AWS deployment pipeline for test and production stages, with automatic deploy
   on release and teardown workflows to avoid cost when not in use.
-- S3-backed DVC remote for dataset and model artifact versioning.
 - ECR-backed Docker image publishing for deployable API images.
 - More formal model registry structure for adding new recommendation models.
 - Stronger drift detection using stored baseline distributions and statistical

@@ -22,7 +22,7 @@ The project uses:
 - Apache Spark for distributed-style data preprocessing
 - Ray Tune for hyperparameter tuning
 - MLflow for experiment tracking and model registry
-- DVC for dataset and model artifact versioning
+- Git LFS for dataset and MLflow history versioning
 - FastAPI for recommendation serving
 - Docker Compose for local services
 - Prometheus and Grafana for monitoring
@@ -37,8 +37,8 @@ ml-1m.zip
 The standalone `src/models/` training scripts instead expect the dataset
 already unzipped at `ml-1m/ratings.dat` in the project root.
 
-Generated data, model artifacts, metrics, and MLflow files are ignored by Git and
-should be tracked through DVC or release artifacts when needed.
+Generated data, model artifacts, and metrics are ignored by Git. `ml-1m.zip`
+and `mlflow.db` are tracked via Git LFS instead of Git's normal blob storage.
 
 ## System Architecture
 
@@ -102,8 +102,10 @@ models/popular_movies.parquet
 models/als_model/
 artifacts/metrics.json
 mlruns/
-mlflow.db
 ```
+
+`mlflow.db` is also generated locally, but is tracked via Git LFS rather than
+ignored - see [Git LFS](#git-lfs).
 
 ## Dependencies
 
@@ -128,16 +130,23 @@ Core dependencies include:
 - `scikit-surprise`, `implicit` for the standalone SVD/ALS models
 - `pandas`, `pyarrow`, `numpy`, `scipy`, `scikit-learn` for data processing and metrics
 - `prometheus-client` for API metrics
-- `dvc[s3]` for data/model versioning
 - `pytest`, `ruff` for testing and linting
 
 System dependencies:
 
 - Python 3.11 or compatible environment
 - Java 17 for Spark
+- Git LFS for dataset/MLflow-history storage
 - Docker and Docker Compose for local services
 
 ## Setup And Installation
+
+Install Git LFS (one-time, per machine) and pull LFS-tracked files:
+
+```bash
+git lfs install
+git lfs pull
+```
 
 Create and activate a virtual environment:
 
@@ -378,37 +387,25 @@ instead (`mlflow.db` at the project root):
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-## DVC
+## Git LFS
 
-DVC is used for dataset and model artifact versioning.
+The MovieLens dataset archive (`ml-1m.zip`) and the MLflow SQLite tracking
+store (`mlflow.db`, the full standalone SVD/ALS/NCF/XGBoost training history)
+are tracked via Git LFS - both are small enough that a dedicated DVC remote
+(S3, etc.) isn't needed; they're just versioned alongside the code.
 
-Initialize DVC and run the pipeline:
+One-time setup after cloning:
 
 ```bash
-dvc init
-dvc repro
+git lfs install
+git lfs pull
 ```
 
-Track generated artifacts:
+After retraining, commit the updated `mlflow.db` like any other file:
 
 ```bash
-dvc add data/raw/ml-1m data/processed models
-git add dvc.yaml dvc.lock params.yaml .dvc .gitignore
-```
-
-Local remote example:
-
-```bash
-mkdir -p ../movie-recommender-dvc
-dvc remote add -d localremote ../movie-recommender-dvc
-dvc push
-```
-
-Future S3 remote example:
-
-```bash
-dvc remote add -d aws-s3 s3://replace-with-your-bucket/dvc
-dvc push
+git add mlflow.db
+git commit -m "Update MLflow tracking history"
 ```
 
 ## Monitoring

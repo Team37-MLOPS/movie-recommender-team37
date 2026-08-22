@@ -17,9 +17,9 @@ artifacts/*
 !artifacts/metrics.json
 logs/
 mlruns/
-.dvc/cache/
 
 *.db
+!mlflow.db
 *.sqlite
 *.log
 .env
