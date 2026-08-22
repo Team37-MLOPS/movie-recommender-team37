@@ -16,7 +16,6 @@ data/processed/
 artifacts/*
 !artifacts/metrics.json
 logs/
-mlruns/
 
 *.db
 !mlflow.db
