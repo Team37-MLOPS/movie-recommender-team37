@@ -34,9 +34,19 @@ if DAG and BashOperator:
             bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.data.preprocess_spark",
         )
 
-        train = BashOperator(
-            task_id="train_and_log_models",
-            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.train",
+        train_svd = BashOperator(
+            task_id="train_svd",
+            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_svd",
         )
 
-        extract >> preprocess >> train
+        train_als = BashOperator(
+            task_id="train_als",
+            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_als",
+        )
+
+        select_best = BashOperator(
+            task_id="select_best_model",
+            bash_command=f"cd {PROJECT_DIR} && python -m src.models.select_best",
+        )
+
+        extract >> preprocess >> [train_svd, train_als] >> select_best

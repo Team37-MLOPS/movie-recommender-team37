@@ -5,7 +5,7 @@ from typing import Dict, Tuple
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RATINGS_PATH = PROJECT_ROOT / "ml-1m" / "ratings.dat"
+RATINGS_PATH = PROJECT_ROOT / "data" / "raw" / "ml-1m" / "ratings.dat"
 
 RELEVANCE_THRESHOLD = 4  # rating >= this counts as "liked" for Precision/Recall
 
