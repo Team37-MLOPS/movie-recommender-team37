@@ -9,11 +9,14 @@ deployment, monitoring, and CI/CD.
 
 Two model-training paths exist side by side:
 
-- `src/movie_recommender/` - the Airflow/Spark/FastAPI pipeline (popularity +
-  Spark ALS), orchestrated end to end and served via the API.
-- `src/models/` and `src/data/` - a standalone SVD/ALS training workflow
-  (`scikit-surprise` / `implicit`) with Ray Tune hyperparameter search,
-  MLflow experiment tracking, and model registry promotion. See
+- `src/movie_recommender/data/`, `src/movie_recommender/models/train.py` -
+  the Airflow/Spark/FastAPI pipeline (popularity + Spark ALS), orchestrated
+  end to end and served via the API.
+- `src/movie_recommender/models/train_svd.py`, `train_als.py`,
+  `train_xgb_hybrid.py`, `train_ncf.py`, `select_best.py` - a standalone
+  tuned-model training workflow (`scikit-surprise` / `implicit` / `xgboost`
+  / `torch`) with Ray Tune hyperparameter search, MLflow experiment
+  tracking, and model registry promotion. See
   `docs/model-development-faq.md` for how to run it.
 
 The project uses:
@@ -34,7 +37,7 @@ The source dataset is expected at:
 ml-1m.zip
 ```
 
-The standalone `src/models/` training scripts instead expect the dataset
+The standalone tuned-model training scripts instead expect the dataset
 already unzipped at `ml-1m/ratings.dat` in the project root.
 
 Generated data, model artifacts, and metrics are ignored by Git. `ml-1m.zip`
@@ -87,8 +90,8 @@ docs/                   Technical documentation and runbooks
 k8s/                    Local kind manifests for API and monitoring
 models/                 Generated model artifacts, ignored by Git
 scripts/                Utility scripts for CI and sample runs
-src/movie_recommender/  Data, model, serving, and monitoring Python package
-src/data/, src/models/  Standalone SVD/ALS training + Ray Tune + MLflow workflow
+src/movie_recommender/         Data, model, serving, and monitoring Python package
+src/movie_recommender/models/  Includes the standalone tuned-model training + Ray Tune + MLflow workflow
 tests/                  Unit and API tests
 ```
 
@@ -181,13 +184,15 @@ Run a faster deterministic sample pipeline:
 python scripts/run_sample_pipeline.py
 ```
 
-Run the standalone SVD/ALS training workflow (Ray Tune + MLflow, requires
+Run the standalone tuned-model training workflow (Ray Tune + MLflow, requires
 `ml-1m/ratings.dat`):
 
 ```bash
-python -m src.models.train_svd
-python -m src.models.train_als
-python -m src.models.select_best
+python -m movie_recommender.models.train_svd
+python -m movie_recommender.models.train_als
+python -m movie_recommender.models.train_xgb_hybrid
+python -m movie_recommender.models.train_ncf
+python -m movie_recommender.models.select_best
 ```
 
 Run the Airflow-orchestrated pipeline:
@@ -380,7 +385,7 @@ http://localhost:5000
 The Docker Compose stack runs MLflow with Postgres as the backend store and
 stores artifacts under the project-mounted `artifacts/` directory.
 
-The standalone `src/models/` training scripts track to a local SQLite store
+The standalone tuned-model training scripts track to a local SQLite store
 instead (`mlflow.db` at the project root):
 
 ```bash

@@ -24,8 +24,11 @@ services:
       mlflow server
       --host 0.0.0.0
       --port 5000
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,${MLFLOW_ALLOWED_HOSTS:-hu-aryasany-hyd,hu-aryasany-hyd:5000}
       --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-mlops}:${POSTGRES_PASSWORD:-mlops}@postgres:5432/mlflow
-      --default-artifact-root /app/artifacts/mlflow
+      --serve-artifacts
+      --artifacts-destination /app/artifacts/mlflow
+      --default-artifact-root mlflow-artifacts:/
     environment:
       PYTHONPATH: /app/src:/app
     ports:

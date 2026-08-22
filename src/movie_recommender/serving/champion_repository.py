@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import mlflow.pyfunc
@@ -12,13 +13,13 @@ logger = logging.getLogger("movie_recommender.serving.champion_repository")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
-MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH}"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{MLFLOW_DB_PATH}")
 CHAMPION_MODEL_URI = "models:/movie-recommender-prod@champion"
 
 
 class ChampionRepository:
     """Serves recommendations from the MLflow-registered champion model
-    (whichever tuned model family `src.models.select_best` most recently
+    (whichever tuned model family `movie_recommender.models.select_best` most recently
     crowned), falling back to the static popularity table - via a plain
     `RecommendationRepository` over the same parquet artifacts - when the
     champion model can't be loaded at all, or fails on a specific request
