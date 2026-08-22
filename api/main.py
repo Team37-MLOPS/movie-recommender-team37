@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from movie_recommender.config import load_settings
 from movie_recommender.monitoring.logging import configure_logging
-from movie_recommender.serving.repository import RecommendationRepository
+from movie_recommender.serving.champion_repository import ChampionRepository
 
 configure_logging()
 logger = logging.getLogger("movie_recommender.api")
@@ -67,8 +67,8 @@ class RecommendationResponse(BaseModel):
 
 
 @lru_cache
-def get_repository() -> RecommendationRepository:
-    return RecommendationRepository(
+def get_repository() -> ChampionRepository:
+    return ChampionRepository(
         settings.paths.recommendation_path,
         settings.paths.popularity_path,
     )
@@ -107,14 +107,14 @@ K_QUERY = Query(default=settings.api.default_k, ge=1, le=settings.api.max_k)
 
 
 @app.get("/health")
-def health(repo: RecommendationRepository = REPOSITORY_DEPENDENCY) -> dict[str, str]:
+def health(repo: ChampionRepository = REPOSITORY_DEPENDENCY) -> dict[str, str]:
     status = "ok" if repo.ready else "model_artifacts_missing"
     REQUEST_COUNT.labels(endpoint="/health", status=status).inc()
     return {"status": status}
 
 
 @app.get("/ready")
-def ready(repo: RecommendationRepository = REPOSITORY_DEPENDENCY) -> dict[str, str]:
+def ready(repo: ChampionRepository = REPOSITORY_DEPENDENCY) -> dict[str, str]:
     if not repo.ready:
         REQUEST_COUNT.labels(endpoint="/ready", status="not_ready").inc()
         raise HTTPException(status_code=503, detail="Recommendation artifacts are not available")
@@ -126,7 +126,7 @@ def ready(repo: RecommendationRepository = REPOSITORY_DEPENDENCY) -> dict[str, s
 def recommendations(
     user_id: int,
     k: int = K_QUERY,
-    repo: RecommendationRepository = REPOSITORY_DEPENDENCY,
+    repo: ChampionRepository = REPOSITORY_DEPENDENCY,
 ) -> RecommendationResponse:
     start = time.perf_counter()
     endpoint = "/recommendations/{user_id}"
@@ -161,3 +161,14 @@ def recommendations(
 @app.get("/metrics")
 def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.post("/admin/reload-model")
+def reload_model() -> dict[str, str]:
+    """Drop the cached ChampionRepository so the next request rebuilds it
+    and picks up whichever model `select_best.py` most recently crowned
+    champion in the MLflow registry, without requiring a process restart."""
+    get_repository.cache_clear()
+    REQUEST_COUNT.labels(endpoint="/admin/reload-model", status="ok").inc()
+    logger.info("champion_model_reload_requested")
+    return {"status": "reloaded"}

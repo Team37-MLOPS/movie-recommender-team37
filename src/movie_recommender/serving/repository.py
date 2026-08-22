@@ -33,6 +33,26 @@ class RecommendationRepository:
     def ready(self) -> bool:
         return not self._popular.empty
 
+    def movie_metadata(self, movie_id: int) -> dict:
+        """Best-effort title/genres/release_year lookup by movie_id, used
+        to enrich recommendation sources (e.g. a registry model) that
+        return bare movie_id lists with no metadata of their own."""
+        for frame in (self._popular, self._recommendations):
+            if frame.empty or "movie_id" not in frame.columns:
+                continue
+            rows = frame[frame["movie_id"] == movie_id]
+            if not rows.empty:
+                row = rows.iloc[0]
+                release_year = row.get("release_year")
+                if pd.isna(release_year):
+                    release_year = None
+                return {
+                    "title": str(row.get("clean_title") or row.get("title") or ""),
+                    "genres": str(row.get("genres") or ""),
+                    "release_year": int(release_year) if release_year is not None else None,
+                }
+        return {"title": "", "genres": "", "release_year": None}
+
     def recommend(self, user_id: int, k: int) -> tuple[list[Recommendation], bool]:
         if not self._recommendations.empty and "user_id" in self._recommendations.columns:
             user_rows = self._recommendations[self._recommendations["user_id"] == user_id]

@@ -1,5 +1,8 @@
-"""ALS model (implicit feedback) via the `implicit` library. Evaluated on
-ranking quality (Precision@K/Recall@K), not RMSE/MAE.
+"""ALS model (implicit feedback) via the `implicit` library. Treats
+rating>=3 as a positive interaction, confidence-weighted by strength
+(3->1, 4->2, 5->3); ratings below 3 are dropped rather than counted as
+positive. Evaluated on ranking quality (Precision@K/Recall@K), not
+RMSE/MAE.
 """
 from typing import Dict, List
 
@@ -23,16 +26,24 @@ class ALSModel:
         self.user_items_: sp.csr_matrix = None
 
     def fit(self, train_df: pd.DataFrame) -> "ALSModel":
-        user_ids = train_df["user_id"].unique()
-        movie_ids = train_df["movie_id"].unique()
+        # A 1-star rating is explicit negative feedback, not a weaker
+        # positive signal - treating every observed rating as an equally
+        # "liked" implicit interaction (as a naive any-interaction=positive
+        # setup would) dilutes training against this project's own
+        # definition of "liked" (rating >= 4, see RELEVANCE_THRESHOLD).
+        # Keep rating >= 3 as positive interactions, confidence-weighted by
+        # strength (3->1, 4->2, 5->3) so a 5-star rating counts three times
+        # as strongly as a lukewarm one.
+        positive_df = train_df[train_df["rating"] >= 3]
+        user_ids = positive_df["user_id"].unique()
+        movie_ids = positive_df["movie_id"].unique()
         self.user_id_to_idx = {u: i for i, u in enumerate(user_ids)}
         movie_id_to_idx = {m: i for i, m in enumerate(movie_ids)}
         self.idx_to_movie_id = {i: m for m, i in movie_id_to_idx.items()}
 
-        rows = train_df["user_id"].map(self.user_id_to_idx).to_numpy()
-        cols = train_df["movie_id"].map(movie_id_to_idx).to_numpy()
-        # every observed rating counts as a positive implicit signal, regardless of its value
-        data = np.ones(len(train_df), dtype=np.float32)
+        rows = positive_df["user_id"].map(self.user_id_to_idx).to_numpy()
+        cols = positive_df["movie_id"].map(movie_id_to_idx).to_numpy()
+        data = (positive_df["rating"].to_numpy(dtype=np.float32) - 2.0)
 
         self.user_items_ = sp.csr_matrix((data, (rows, cols)), shape=(len(user_ids), len(movie_ids)))
         self.model.fit(self.user_items_)
