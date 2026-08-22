@@ -22,9 +22,10 @@ not necessarily the lowest RMSE - is registered as a new version of the
 
 The held-out test set is not used in training. Will be used post deployment.
 
-Run with: python -m src.models.train_xgb_hybrid
+Run with: python -m movie_recommender.models.train_xgb_hybrid
 """
 import logging
+import os
 import pickle
 import tempfile
 from datetime import datetime
@@ -37,23 +38,23 @@ from mlflow.tracking import MlflowClient
 from ray import tune
 
 from movie_recommender.config import load_settings
-from src.data.data_utils import (
+from movie_recommender.data.data_utils import (
     build_relevant_items_map,
     build_user_items_map,
     load_engineered_features,
     load_ratings,
     train_val_test_split_by_user,
 )
-from src.models.metrics import mae, precision_recall_at_k, rmse
-from src.models.recommender_pyfunc import RecommenderPyfunc
-from src.models.xgb_hybrid_model import XGBHybridModel
+from movie_recommender.models.metrics import mae, precision_recall_at_k, rmse
+from movie_recommender.models.recommender_pyfunc import RecommenderPyfunc
+from movie_recommender.models.xgb_hybrid_model import XGBHybridModel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
-MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH}"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{MLFLOW_DB_PATH}")
 EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-xgb-hybrid"
 TOP_K = 10

@@ -46,27 +46,27 @@ if DAG and BashOperator:
 
         train_svd = BashOperator(
             task_id="train_svd",
-            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_svd",
+            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.train_svd",
         )
 
         train_als = BashOperator(
             task_id="train_als",
-            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_als",
+            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.train_als",
         )
 
         train_xgb_hybrid = BashOperator(
             task_id="train_xgb_hybrid",
-            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_xgb_hybrid",
+            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.train_xgb_hybrid",
         )
 
         train_ncf = BashOperator(
             task_id="train_ncf",
-            bash_command=f"cd {PROJECT_DIR} && python -m src.models.train_ncf",
+            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.train_ncf",
         )
 
         select_best_model = BashOperator(
             task_id="select_best_model",
-            bash_command=f"cd {PROJECT_DIR} && python -m src.models.select_best",
+            bash_command=f"cd {PROJECT_DIR} && python -m movie_recommender.models.select_best",
         )
 
         extract >> preprocess >> validate

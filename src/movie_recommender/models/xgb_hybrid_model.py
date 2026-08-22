@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-from src.data.data_utils import CONTENT_FEATURE_COLUMNS
-from src.models.svd_model import SVDModel
+from movie_recommender.data.data_utils import CONTENT_FEATURE_COLUMNS
+from movie_recommender.models.svd_model import SVDModel
 
 
 class XGBHybridModel:

@@ -6,9 +6,10 @@ actually compares model families on), and the one with the best F1@10 -
 not necessarily the lowest RMSE - is registered as a new version of the
 "movie-recommender-svd" model in the MLflow Model Registry.
 
-Run with: python -m src.models.train_svd
+Run with: python -m movie_recommender.models.train_svd
 """
 import logging
+import os
 import pickle
 import tempfile
 from datetime import datetime
@@ -19,22 +20,22 @@ import mlflow.pyfunc
 import ray
 from ray import tune
 
-from src.data.data_utils import (
+from movie_recommender.data.data_utils import (
     build_relevant_items_map,
     build_user_items_map,
     load_ratings,
     train_val_test_split_by_user,
 )
-from src.models.metrics import mae, precision_recall_at_k, rmse
-from src.models.recommender_pyfunc import RecommenderPyfunc
-from src.models.svd_model import SVDModel
+from movie_recommender.models.metrics import mae, precision_recall_at_k, rmse
+from movie_recommender.models.recommender_pyfunc import RecommenderPyfunc
+from movie_recommender.models.svd_model import SVDModel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
-MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH}"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{MLFLOW_DB_PATH}")
 EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-svd"
 TOP_K = 10

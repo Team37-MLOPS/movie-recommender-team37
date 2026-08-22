@@ -8,9 +8,10 @@ tune can land on a worse hyperparameter config than a previous one by
 chance, and only ever comparing the latest run would let the production
 champion regress.
 
-Run with: python -m src.models.select_best
+Run with: python -m movie_recommender.models.select_best
 """
 import logging
+import os
 from pathlib import Path
 
 import mlflow
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
-MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH}"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{MLFLOW_DB_PATH}")
 EXPERIMENT_NAME = "movie-recommender"
 REGISTERED_MODEL_NAME = "movie-recommender-prod"
 CHAMPION_ALIAS = "champion"
